@@ -785,6 +785,8 @@ for DOMAIN in $DOMAINS_NOTRUNNING; do
       done
       print_v d "All ${#all_backing_files[@]} block files for '$DOMAIN': $block_device : ${all_backing_files[*]}"
       _ret=$?
+      print_v v "Dump config of $DOMAIN to backupdestination"
+      $VIRSH dumpxml $DOMAIN > $BACKUP_DIRECTORY/$DOMAIN-$(date +%Y-%m-%d_%H:%M:%S).xml
       unlock "$DOMAIN"
    fi
 done
