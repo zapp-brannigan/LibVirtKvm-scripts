@@ -535,6 +535,17 @@ function dependencies_check() {
    return $_ret
 }
 
+# Move backups to a safe place after consolidating snapshots. Next backup starts a new "backupchain".
+function move_backupset {
+   local ts=$(date +%Y-%m-%d_%H:%M:%S)
+   local DOMAIN=$1
+   local BACKUP_DIRECTORY=$2
+   print_v v "Moving current backups of $DOMAIN to $BACKUP_DIRECTORY/set_$ts"
+   mkdir $BACKUP_DIRECTORY/set_$ts
+   chmod 666 $BACKUP_DIRECTORY/set_$ts
+   find $BACKUP_DIRECTORY -type f -exec mv {} $BACKUP_DIRECTORY/set_$ts \; > /dev/null 2>&1
+}
+
 TEMP=$(getopt -n "$APP_NAME" -o b:cCm:s:qrdhvV --long backup_dir:,consolidate_only,consolidate_and_snapshot,method:,quiesce,all_running,dump_state_dir:,debug,help,version,verbose -- "$@")
 if [ $? != 0 ] ; then echo "Failed parsing options." >&2 ; exit 1 ; fi
 
@@ -720,6 +731,7 @@ for DOMAIN in $DOMAINS_RUNNING; do
          consolidate_domain "$DOMAIN"
          _ret=$?
          unlock "$DOMAIN"
+         move_backupset $DOMAIN $BACKUP_DIRECTORY
       else
          print_v e "Another instance of $0 is already running on '$DOMAIN'! Skipping consolidation of '$DOMAIN'"
       fi
