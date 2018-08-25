@@ -707,6 +707,8 @@ for DOMAIN in $DOMAINS_RUNNING; do
          snapshot_domain "$DOMAIN"
          _ret=$?
          unlock "$DOMAIN"
+         print_v v "Dump config of $DOMAIN to backupdestination"
+         $VIRSH dumpxml $DOMAIN > $BACKUP_DIRECTORY/$DOMAIN-$(date +%Y-%m-%d_%H:%M:%S).xml
       else
          print_v e "Another instance of $0 is already running on '$DOMAIN'! Skipping backup of '$DOMAIN'"
       fi
