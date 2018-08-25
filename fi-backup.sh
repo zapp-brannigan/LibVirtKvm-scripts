@@ -18,7 +18,7 @@
 # fi-backup - Online Forward Incremental Libvirt/KVM backup
 # Copyright (C) 2013 2014 2015 Davide Guerri - davide.guerri@gmail.com
 #
-
+export LANG=C
 VERSION="2.1.0"
 APP_NAME="fi-backup"
 
@@ -31,7 +31,7 @@ VIRSH="/usr/bin/virsh"
 QEMU="/usr/bin/qemu-system-x86_64"
 
 # Defaults and constants
-BACKUP_DIRECTORY=
+BACKUP_DIRECTORY=/data/kvm/bkp
 CONSOLIDATION=0
 DEBUG=0
 VERBOSE=0
@@ -49,22 +49,22 @@ ALL_RUNNING_DOMAINS=0
 
 function print_v() {
    local level=$1
-
+   ts=$(date +%Y-%m-%d_%H:%M:%S)
    case $level in
       v) # Verbose
-      [ $VERBOSE -eq 1 ] && echo -e "[VER] ${*:2}"
+      [ $VERBOSE -eq 1 ] && echo -e "$ts [VER] ${*:2}"
       ;;
       d) # Debug
-      [ $DEBUG -eq 1 ] && echo -e "[DEB] ${*:2}"
+      [ $DEBUG -eq 1 ] && echo -e "$ts [DEB] ${*:2}"
       ;;
       e) # Error
-      echo -e "[ERR] ${*:2}"
+      echo -e "$ts [ERR] ${*:2}"
       ;;
       w) # Warning
-      echo -e "[WAR] ${*:2}"
+      echo -e "$ts [WAR] ${*:2}"
       ;;
       *) # Any other level
-      echo -e "[INF] ${*:2}"
+      echo -e "$ts [INF] ${*:2}"
       ;;
    esac
 }
@@ -342,7 +342,7 @@ function snapshot_domain() {
 
                   print_v v \
                      "Copy backing file '${snapshot_chain[$j]}' to '$new_backing_file'"
-                  cp -u "${snapshot_chain[$j]}" "$new_backing_file"
+                  cp -au "${snapshot_chain[$j]}" "$new_backing_file"
                done
             done
          fi
@@ -622,6 +622,11 @@ while true; do
   esac
 done
 
+if [ ! -d $BACKUP_DIRECTORY ]; then
+   print_v e "The backupdestination ($BACKUP_DIRECTORY) is not available"
+   exit 1
+fi
+
 if [ $ALL_RUNNING_DOMAINS -eq 1 ]; then
    print_v d "all_running_domains = '$ALL_RUNNING_DOMAINS' so all running domains will be backed up"
 fi
@@ -689,6 +694,12 @@ print_v d "Domains NOTRUNNING to backup: $DOMAINS_NOTRUNNING"
 print_v d "Domains RUNNING to backup: $DOMAINS_RUNNING"
 
 for DOMAIN in $DOMAINS_RUNNING; do
+   if [ ! -d $BACKUP_DIRECTORY/$DOMAIN ]; then
+      print_v i "Creating $BACKUP_DIRECTORY/$DOMAIN"
+      mkdir -p $BACKUP_DIRECTORY/$DOMAIN
+      chmod 666 $BACKUP_DIRECTORY/$DOMAIN  
+   fi
+   BACKUP_DIRECTORY="$BACKUP_DIRECTORY/$DOMAIN"
    _ret=0
    if [ $SNAPSHOT -eq 1 ]; then
       try_lock "$DOMAIN"
@@ -715,6 +726,12 @@ done
 
 for DOMAIN in $DOMAINS_NOTRUNNING; do
    _ret=0
+   if [ ! -d $BACKUP_DIRECTORY/$DOMAIN ]; then
+      print_v i "Creating $BACKUP_DIRECTORY/$DOMAIN"
+      mkdir -p $BACKUP_DIRECTORY/$DOMAIN
+      chmod 666 $BACKUP_DIRECTORY/$DOMAIN  
+   fi
+   BACKUP_DIRECTORY="$BACKUP_DIRECTORY/$DOMAIN"
    declare -a all_backing_files=()
    if [ "$BACKUP_DIRECTORY" == "" ]; then
          print_v e "-b flag (directory) required for backing up the shut-off domain '$DOMAIN'"
@@ -747,7 +764,7 @@ for DOMAIN in $DOMAINS_NOTRUNNING; do
          backing_file=""
          block_device="${block_devices[$i]}"
          print_v d "Backing up: cp -up $backing_file $BACKUP_DIRECTORY/"
-         cp -up "$block_device" "$BACKUP_DIRECTORY"/ || print_v e "Unable to cp -up $block_device"
+         cp -aup "$block_device" "$BACKUP_DIRECTORY"/ || print_v e "Unable to cp -up $block_device"
          get_backing_file "$block_device" backing_file
          j=0
          all_backing_files[$j]=$backing_file
@@ -757,7 +774,7 @@ for DOMAIN in $DOMAINS_NOTRUNNING; do
             print_v d "Parent block device: '$backing_file'"
             #In theory snapshots are unchanged so we can use one time cp instead of rsync
             print_v d "Backing up: cp -up $backing_file $BACKUP_DIRECTORY/"
-            cp -up "$backing_file" "$BACKUP_DIRECTORY"/ || print_v e "Unable to cp -up $backing_file"
+            cp -aup "$backing_file" "$BACKUP_DIRECTORY"/ || print_v e "Unable to cp -up $backing_file"
             #get next backing file if it exists
             get_backing_file "$backing_file" parent_backing_file
             print_v d "Next file in backing file chain: '$parent_backing_file'"
