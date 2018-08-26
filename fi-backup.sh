@@ -543,7 +543,7 @@ function move_backupset {
    print_v v "Moving current backups of $DOMAIN to $BACKUP_DIRECTORY/set_$ts"
    mkdir $BACKUP_DIRECTORY/set_$ts
    chmod 666 $BACKUP_DIRECTORY/set_$ts
-   find $BACKUP_DIRECTORY -type f -exec mv {} $BACKUP_DIRECTORY/set_$ts \; > /dev/null 2>&1
+   find $BACKUP_DIRECTORY -maxdepth 1 -type f -exec mv {} $BACKUP_DIRECTORY/set_$ts \; > /dev/null 2>&1
 }
 
 TEMP=$(getopt -n "$APP_NAME" -o b:cCm:s:qrdhvV --long backup_dir:,consolidate_only,consolidate_and_snapshot,method:,quiesce,all_running,dump_state_dir:,debug,help,version,verbose -- "$@")
