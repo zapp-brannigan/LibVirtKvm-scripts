@@ -710,6 +710,7 @@ for DOMAIN in $DOMAINS_RUNNING; do
       mkdir -p $BACKUP_DIRECTORY/$DOMAIN
       chmod 666 $BACKUP_DIRECTORY/$DOMAIN  
    fi
+   BACKUP_DIRECTORY_BASE=$BACKUP_DIRECTORY
    BACKUP_DIRECTORY="$BACKUP_DIRECTORY/$DOMAIN"
    _ret=0
    if [ $SNAPSHOT -eq 1 ]; then
@@ -736,6 +737,7 @@ for DOMAIN in $DOMAINS_RUNNING; do
          print_v e "Another instance of $0 is already running on '$DOMAIN'! Skipping consolidation of '$DOMAIN'"
       fi
    fi
+   BACKUP_DIRECTORY=$BACKUP_DIRECTORY_BASE
 done
 
 for DOMAIN in $DOMAINS_NOTRUNNING; do
@@ -745,6 +747,7 @@ for DOMAIN in $DOMAINS_NOTRUNNING; do
       mkdir -p $BACKUP_DIRECTORY/$DOMAIN
       chmod 666 $BACKUP_DIRECTORY/$DOMAIN  
    fi
+   BACKUP_DIRECTORY_BASE=$BACKUP_DIRECTORY
    BACKUP_DIRECTORY="$BACKUP_DIRECTORY/$DOMAIN"
    declare -a all_backing_files=()
    if [ "$BACKUP_DIRECTORY" == "" ]; then
@@ -801,6 +804,7 @@ for DOMAIN in $DOMAINS_NOTRUNNING; do
       $VIRSH dumpxml $DOMAIN > $BACKUP_DIRECTORY/$DOMAIN-$(date +%Y-%m-%d_%H:%M:%S).xml
       unlock "$DOMAIN"
    fi
+   BACKUP_DIRECTORY=$BACKUP_DIRECTORY_BASE
 done
 
 exit $_ret
