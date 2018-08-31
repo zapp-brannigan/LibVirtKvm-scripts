@@ -159,7 +159,7 @@ function get_backing_file() {
    local _ret=
    local _backing_file=
 
-   _backing_file=$($QEMU_IMG info -U "$file_name" | \
+   _backing_file=$($QEMU_IMG info "${QEMU_IMG_INFO_FLAGS[@]}" "$file_name" | \
       awk '/^backing file: / {$1=$2=""; print $0}'|sed 's/^[ \t]*//')
    _ret=$?
 
@@ -484,6 +484,10 @@ function dependencies_check() {
       print_v e "Unsupported libVirt version '$version'. Please use libVirt 0.9.13 or later"
       _ret=2
    fi
+   if check_version "$version" '2.12.0'; then
+	  QEMU_IMG_INFO_FLAGS=(--force-share)
+      print_v d "$QEMU_IMG later than 2.12.0, using --force-share/-U mode"
+      fi
 
    version=$(qemu_img_version)
    if check_version "$version" '1.2.0'; then
