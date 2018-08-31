@@ -484,14 +484,14 @@ function dependencies_check() {
       print_v e "Unsupported libVirt version '$version'. Please use libVirt 0.9.13 or later"
       _ret=2
    fi
-   if check_version "$version" '2.12.0'; then
-	  QEMU_IMG_INFO_FLAGS=(--force-share)
-      print_v d "$QEMU_IMG later than 2.12.0, using --force-share/-U mode"
-      fi
 
    version=$(qemu_img_version)
    if check_version "$version" '1.2.0'; then
       print_v d "$QEMU_IMG version '$version' is supported"
+      if check_version "$version" '2.12.0'; then
+	     QEMU_IMG_INFO_FLAGS=(--force-share)
+         print_v d "$QEMU_IMG later than 2.12.0, using --force-share/-U mode"
+      fi
    else
       print_v e "Unsupported $QEMU_IMG version '$version'. Please use 'qemu-img' 1.2.0 or later"
       _ret=2
