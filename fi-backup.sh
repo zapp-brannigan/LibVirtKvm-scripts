@@ -19,7 +19,7 @@
 # Copyright (C) 2013 2014 2015 Davide Guerri - davide.guerri@gmail.com
 #
 export LANG=C
-VERSION="2.1.0"
+VERSION="2.1.0fork"
 APP_NAME="fi-backup"
 
 # Fail if one process fails in a pipe
@@ -48,13 +48,15 @@ CONSOLIDATION_FLAGS=(--wait)
 QEMU_IMG_INFO_FLAGS=
 ALL_RUNNING_DOMAINS=0
 SYSTEMD_JOURNAL=0
+RETENTION_DAYS=5
+BACKUP_SETS_TO_KEEP=1
 
 source utils.sh > /dev/null 2>&1
 if [ $? -ne 0 ]; then
     echo -e "$(date +%Y-%m-%d_%H:%M:%S) [ERR] utils.sh not found!"
     exit 1
 fi
-TEMP=$(getopt -n "$APP_NAME" -o b:cCm:s:qrdhvVS --long backup_dir:,consolidate_only,consolidate_and_snapshot,method:,quiesce,all_running,dump_state_dir:,debug,help,version,verbose,stdout -- "$@")
+TEMP=$(getopt -n "$APP_NAME" -o b:cCm:s:qrdhvVSH --long backup_dir:,consolidate_only,consolidate_and_snapshot,method:,quiesce,all_running,dump_state_dir:,debug,help,version,verbose,stdout,housekeeping -- "$@")
 if [ $? != 0 ] ; then echo "Failed parsing options." >&2 ; exit 1 ; fi
 
 eval set -- "$TEMP"
@@ -140,6 +142,10 @@ while true; do
          SYSTEMD_JOURNAL=1
          shift
       ;;
+      -H|--housekeeping)
+         CLEANING=0
+         shift
+      ;;
     -- ) shift; break ;;
     * ) break ;;
   esac
@@ -151,6 +157,12 @@ dependencies_check
 if [ ! -d $BACKUP_DIRECTORY ]; then
    print_v e "The backupdestination ($BACKUP_DIRECTORY) is not available"
    exit 1
+fi
+
+if [ ! -z ${CLEANING+x} ]; then
+   print_v i "Clean-up of old backupsets requested"
+   clean_backupsets
+   exit $?
 fi
 
 if [ $ALL_RUNNING_DOMAINS -eq 1 ]; then

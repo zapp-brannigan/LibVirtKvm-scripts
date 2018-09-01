@@ -78,6 +78,7 @@ function print_usage() {
       -C                Snapshot and consolidation
       -d                Debug
       -h                Print usage and exit
+      -H                Remove old backupsets
       -m <method>       Consolidation method: blockcommit or blockpull
       -q                Use quiescence (qemu agent must be installed in the domain)
       -s <directory>    Dump domain status in the specified directory
@@ -505,7 +506,7 @@ function dependencies_check() {
 
    version=$(libvirt_version)
    if check_version "$version" '0.9.13'; then
-      if check_version "$version" '1.0.0'; then
+      if check_version "$version" '4.6.1'; then
          print_v i "libVirt version '$version' support is experimental"
       else
          print_v d "libVirt version '$version' is supported"
@@ -547,4 +548,32 @@ function move_backupset {
    mkdir $BACKUP_DIRECTORY/set_$ts
    chmod 666 $BACKUP_DIRECTORY/set_$ts
    find $BACKUP_DIRECTORY -maxdepth 1 -type f -exec mv {} $BACKUP_DIRECTORY/set_$ts \; > /dev/null 2>&1
+}
+
+# Delete backupset which are older than $RETENTION_DAYS, but keep at least $BACKUP_SETS_TO_KEEP set(s)
+function clean_backupsets {
+   local _ret=0
+   backed_up=($(find $BACKUP_DIRECTORY -maxdepth 1 -mindepth 1 -type d))
+   for vm in ${backed_up[@]}; do
+      all_sets=($(find $BACKUP_DIRECTORY/$(basename $vm) -maxdepth 1 -mindepth 1 -type d -name set_*))
+      print_v v "Found ${#all_sets[@]} backupsets for '$(basename $vm)'"
+      if [ ${#all_sets[@]} -le $BACKUP_SETS_TO_KEEP ]; then
+         print_v v "Number of backupsets for '$(basename $vm)' is below/equal $BACKUP_SETS_TO_KEEP; not removing any backupsets"
+         continue
+      fi
+      old_sets=($(find $BACKUP_DIRECTORY/$(basename $vm) -maxdepth 1 -mindepth 1 -type d -name set_* -mtime +$RETENTION_DAYS))
+      if [ ${#old_sets[@]} -eq 0 ]; then
+         print_v v "No suitable backupsets found (too young)"
+      else
+         for set in ${old_sets[@]};do
+            print_v v "Deleting '$set'"
+            rm -rf "$set" > /dev/null 2>&1
+            if [ $? -ne 0 ]; then
+               print_v e "Error removing '$set'"
+               _ret=1
+            fi
+         done
+      fi
+   done
+   return $_ret
 }
