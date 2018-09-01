@@ -283,7 +283,10 @@ for DOMAIN in $DOMAINS_NOTRUNNING; do
    if [ $_ret -eq 0 ]; then
       get_block_devices "$DOMAIN" block_devices
       for ((i = 0; i < ${#block_devices[@]}; i++)); do
-         if [ $(stat -c %Y ${block_devices[$i]}) -ne $(stat -c %Y $BACKUP_DIRECTORY/$(basename ${block_devices[$i]})) ]; then
+         if [ ! -e $BACKUP_DIRECTORY/$(basename ${block_devices[$i]}) ]; then
+            continue
+         fi
+         if [ $(stat -c %Y ${block_devices[$i]} 2>/dev/null) -ne $(stat -c %Y $BACKUP_DIRECTORY/$(basename ${block_devices[$i]}) 2>/dev/null) ]; then
             print_v i "A blockdevice of the not running domain '$DOMAIN' has been changed since the last backup; starting a new backupset"
             move_backupset $DOMAIN $BACKUP_DIRECTORY
             break
