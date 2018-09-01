@@ -21,19 +21,43 @@ function print_v() {
    ts=$(date +%Y-%m-%d_%H:%M:%S)
    case $level in
       v) # Verbose
-      [ $VERBOSE -eq 1 ] && echo -e "$ts [VER] ${*:2}"
+      if [ $VERBOSE -eq 1 ]; then
+         if [ $SYSTEMD_JOURNAL -eq 0 ]; then
+            echo -e "[VER] ${*:2}" | $SYSTEMD_CAT -t $APP_NAME
+         else 
+            echo -e "$ts [VER] ${*:2}"
+         fi
+      fi
       ;;
       d) # Debug
-      [ $DEBUG -eq 1 ] && echo -e "$ts [DEB] ${*:2}"
+      if [ $DEBUG -eq 1 ]; then
+         if [ $SYSTEMD_JOURNAL -eq 0 ]; then
+            echo -e "[DEB] ${*:2}" | $SYSTEMD_CAT -t $APP_NAME -p debug
+         else
+            echo -e "$ts [DEB] ${*:2}"
+         fi
+      fi
       ;;
       e) # Error
-      echo -e "$ts [ERR] ${*:2}"
+      if [ $SYSTEMD_JOURNAL -eq 0 ]; then
+        echo -e "[ERR] ${*:2}" | $SYSTEMD_CAT -t $APP_NAME -p err
+      else
+        echo -e "$ts [ERR] ${*:2}"
+      fi
       ;;
       w) # Warning
-      echo -e "$ts [WAR] ${*:2}"
+      if [ $SYSTEMD_JOURNAL -eq 0 ]; then
+         echo -e "[WAR] ${*:2}" | $SYSTEMD_CAT -t $APP_NAME -p warning
+      else
+         echo -e "$ts [WAR] ${*:2}"
+      fi
       ;;
       *) # Any other level
-      echo -e "$ts [INF] ${*:2}"
+      if [ $SYSTEMD_JOURNAL -eq 0 ]; then
+         echo -e "[INF] ${*:2}" | $SYSTEMD_CAT -t $APP_NAME
+      else
+         echo -e "$ts [INF] ${*:2}"
+      fi
       ;;
    esac
 }
@@ -52,11 +76,12 @@ function print_usage() {
       -b <directory>    Copy previous snapshot/base image to the specified <directory>
       -c                Consolidation only
       -C                Snapshot and consolidation
+      -d                Debug
+      -h                Print usage and exit
       -m <method>       Consolidation method: blockcommit or blockpull
       -q                Use quiescence (qemu agent must be installed in the domain)
       -s <directory>    Dump domain status in the specified directory
-      -d                Debug
-      -h                Print usage and exit
+      -S                Log to stdout instead of systemd-journal
       -v                Verbose
       -V                Print version and exit
 
@@ -472,6 +497,11 @@ function dependencies_check() {
       print_v e "'$QEMU' cannot be found or executed"
       _ret=1
    fi
+   
+   if [ ! -x "$SYSTEMD_CAT" ] && [ $SYSTEMD_JOURNAL -eq 0 ]; then
+      echo -e "[ERR] '$SYSTEMD_CAT' cannot be found or executed; use the '-S' switch to use stdout instead of systemd-journal"
+      _ret=1
+   fi
 
    version=$(libvirt_version)
    if check_version "$version" '0.9.13'; then
@@ -490,7 +520,7 @@ function dependencies_check() {
       print_v d "$QEMU_IMG version '$version' is supported"
       if check_version "$version" '2.12.0'; then
 	     QEMU_IMG_INFO_FLAGS=(--force-share)
-         print_v d "$QEMU_IMG later than 2.12.0, using --force-share/-U mode"
+         print_v d "$QEMU_IMG later than '2.12.0', using --force-share/-U mode"
       fi
    else
       print_v e "Unsupported $QEMU_IMG version '$version'. Please use 'qemu-img' 1.2.0 or later"

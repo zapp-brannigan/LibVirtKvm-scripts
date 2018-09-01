@@ -29,6 +29,7 @@ set -o pipefail
 QEMU_IMG="/usr/bin/qemu-img"
 VIRSH="/usr/bin/virsh"
 QEMU="/usr/bin/qemu-system-x86_64"
+SYSTEMD_CAT="/usr/bin/systemd-cat"
 
 # Defaults and constants
 BACKUP_DIRECTORY=/data/kvm/bkp
@@ -46,13 +47,14 @@ CONSOLIDATION_METHOD="blockcommit"
 CONSOLIDATION_FLAGS=(--wait)
 QEMU_IMG_INFO_FLAGS=
 ALL_RUNNING_DOMAINS=0
+SYSTEMD_JOURNAL=0
 
 source utils.sh > /dev/null 2>&1
 if [ $? -ne 0 ]; then
     echo -e "$(date +%Y-%m-%d_%H:%M:%S) [ERR] utils.sh not found!"
     exit 1
 fi
-TEMP=$(getopt -n "$APP_NAME" -o b:cCm:s:qrdhvV --long backup_dir:,consolidate_only,consolidate_and_snapshot,method:,quiesce,all_running,dump_state_dir:,debug,help,version,verbose -- "$@")
+TEMP=$(getopt -n "$APP_NAME" -o b:cCm:s:qrdhvVS --long backup_dir:,consolidate_only,consolidate_and_snapshot,method:,quiesce,all_running,dump_state_dir:,debug,help,version,verbose,stdout -- "$@")
 if [ $? != 0 ] ; then echo "Failed parsing options." >&2 ; exit 1 ; fi
 
 eval set -- "$TEMP"
@@ -134,10 +136,17 @@ while true; do
          shift
          exit 0
       ;;
+      -S|--stdout)
+         SYSTEMD_JOURNAL=1
+         shift
+      ;;
     -- ) shift; break ;;
     * ) break ;;
   esac
 done
+
+dependencies_check
+[ $? -ne 0 ] && exit 3
 
 if [ ! -d $BACKUP_DIRECTORY ]; then
    print_v e "The backupdestination ($BACKUP_DIRECTORY) is not available"
@@ -174,9 +183,6 @@ if [ $DUMP_STATE -eq 1 ]; then
       exit 1
    fi
 fi
-
-dependencies_check
-[ $? -ne 0 ] && exit 3
 
 DOMAIN_NAME="$1"
 
@@ -316,7 +322,7 @@ for DOMAIN in $DOMAINS_NOTRUNNING; do
       done
       print_v d "All ${#all_backing_files[@]} block files for '$DOMAIN': $block_device : ${all_backing_files[*]}"
       _ret=$?
-      print_v v "Dump config of $DOMAIN to backupdestination"
+      print_v v "Dump config of '$DOMAIN' to backupdestination"
       $VIRSH dumpxml $DOMAIN > $BACKUP_DIRECTORY/$DOMAIN-$(date +%Y-%m-%d_%H:%M:%S).xml
       unlock "$DOMAIN"
    fi
