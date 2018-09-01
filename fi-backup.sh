@@ -282,12 +282,19 @@ for DOMAIN in $DOMAINS_NOTRUNNING; do
 
    if [ $_ret -eq 0 ]; then
       get_block_devices "$DOMAIN" block_devices
-      #print_v d "DOMAIN $DOMAIN $BACKUP_DIRECTORY/ $block_devices"
+      for ((i = 0; i < ${#block_devices[@]}; i++)); do
+         if [ $(stat -c %Y ${block_devices[$i]}) -ne $(stat -c %Y $BACKUP_DIRECTORY/$(basename ${block_devices[$i]})) ]; then
+            print_v i "A blockdevice of the not running domain '$DOMAIN' has been changed since the last backup; starting a new backupset"
+            move_backupset $DOMAIN $BACKUP_DIRECTORY
+            break
+         fi
+      done
       for ((i = 0; i < ${#block_devices[@]}; i++)); do
          backing_file=""
          block_device="${block_devices[$i]}"
          print_v d "Backing up: cp -up $backing_file $BACKUP_DIRECTORY/"
          cp -aup "$block_device" "$BACKUP_DIRECTORY"/ || print_v e "Unable to cp -up $block_device"
+         
          get_backing_file "$block_device" backing_file
          j=0
          all_backing_files[$j]=$backing_file

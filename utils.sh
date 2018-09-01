@@ -513,7 +513,7 @@ function move_backupset {
    local ts=$(date +%Y-%m-%d_%H:%M:%S)
    local DOMAIN=$1
    local BACKUP_DIRECTORY=$2
-   print_v v "Moving current backups of $DOMAIN to $BACKUP_DIRECTORY/set_$ts"
+   print_v v "Moving current backups of '$DOMAIN' to $BACKUP_DIRECTORY/set_$ts"
    mkdir $BACKUP_DIRECTORY/set_$ts
    chmod 666 $BACKUP_DIRECTORY/set_$ts
    find $BACKUP_DIRECTORY -maxdepth 1 -type f -exec mv {} $BACKUP_DIRECTORY/set_$ts \; > /dev/null 2>&1
