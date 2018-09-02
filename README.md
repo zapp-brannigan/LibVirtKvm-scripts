@@ -72,24 +72,25 @@ Edit `/etc/libvirt/qemu.conf` and set
 
 ### Syntax
 
-    fi-backup version 2.1.0 - Davide Guerri <davide.guerri@gmail.com>
+    fi-backup version 2.1.0fork - Davide Guerri <davide.guerri@gmail.com>
 
     Usage:
 
-    ./fi-backup.sh [-c|-C] [-q|-s <directory>] [-h] [-d] [-v] [-V] [-b <directory>] "<domains separated by spaces>"|all
+    ./fi-backup.sh [-c|-C] [-q|-s <directory>] [-h] [-d] [-v] [-V] [-b <directory>] [-m <method>] <domain name>|all
 
     Options
-       -b, --backup_dir <directory>      Copy previous snapshot/base image to the specified <directory>
-       -c, --consolidate_only            Consolidation only
-       -C, --consolidate_and_snapshot    Snapshot and consolidation
-       -m, --method <method>             Use blockpull or blockcommit for consolidation
-       -q, --quiesce                     Use quiescence (qemu agent must be installed in the domain)
-       -s, --dump_state_dir <directory>  Dump domain status in the specified directory
-       -d, --debug                       Debug
-       -r, --all_running                 Backup all running domains only (do not specify domains)
-       -h, --help                        Print usage and exit
-       -v, --verbose                     Verbose
-       -V, --version                     Print version and exit
+      -b <directory>    Copy previous snapshot/base image to the specified <directory>
+      -c                Consolidation only
+      -C                Snapshot and consolidation
+      -d                Debug
+      -h                Print usage and exit
+      -H                Remove old backupsets
+      -m <method>       Consolidation method: blockcommit or blockpull
+      -q                Use quiescence (qemu agent must be installed in the domain)
+      -s <directory>    Dump domain status in the specified directory
+      -S                Log to stdout instead of systemd-journal
+      -v                Verbose
+      -V                Print version and exit
 
 ### Sample usage
 
@@ -225,6 +226,12 @@ For instance, in order to recover the backup with timestamp `20130531-120054`, t
 * `DGuerri_Domain.img`
 * `DGuerri_Domain.bimg-20130531-114338`
 * `DGuerri_Domain.bimg-20130531-120054`
+
+After a domain has been consolidated the current backups of the domain will be moved to a subfolder called "set_<timestamp>". That means a kind of "backup history" is created. The next backup will be a "full" (copies all the files to the backupdir again). The old backupset will never deleted, you have to call fi-backup.sh with the "-H" switch. It will delete all backupsets older than 5 days but keep at least 1 set.
+You can specify more sets and a longer/shorter time by adjusting this variables:
+    RETENTION_DAYS=5
+    BACKUP_SETS_TO_KEEP=1
+
 
 # Contributing to LibVirtKvm-Scripts
 
