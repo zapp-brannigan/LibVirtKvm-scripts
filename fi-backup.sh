@@ -225,8 +225,8 @@ else
    done
 fi
 
-print_v d "Domains NOTRUNNING to backup: $DOMAINS_NOTRUNNING"
 print_v d "Domains RUNNING to backup: $DOMAINS_RUNNING"
+print_v d "Domains NOTRUNNING to backup: $DOMAINS_NOTRUNNING"
 
 for DOMAIN in $DOMAINS_RUNNING; do
    if [ ! -d $BACKUP_DIRECTORY/$DOMAIN ]; then
@@ -236,6 +236,8 @@ for DOMAIN in $DOMAINS_RUNNING; do
    fi
    BACKUP_DIRECTORY_BASE=$BACKUP_DIRECTORY
    BACKUP_DIRECTORY="$BACKUP_DIRECTORY/$DOMAIN"
+   print_v i "Processing domain '$DOMAIN'"
+   print_v d "Backupdestination for '$DOMAIN': $BACKUP_DIRECTORY"
    _ret=0
    if [ $SNAPSHOT -eq 1 ]; then
       try_lock "$DOMAIN"
@@ -261,11 +263,14 @@ for DOMAIN in $DOMAINS_RUNNING; do
          print_v e "Another instance of $0 is already running on '$DOMAIN'! Skipping consolidation of '$DOMAIN'"
       fi
    fi
+   print_v i "Domain '$DOMAIN' done"
    BACKUP_DIRECTORY=$BACKUP_DIRECTORY_BASE
 done
 
 for DOMAIN in $DOMAINS_NOTRUNNING; do
    _ret=0
+   print_v i "Processing domain '$DOMAIN'"
+   print_v i "Domain '$DOMAIN' is not in a running state"
    if [ ! -d $BACKUP_DIRECTORY/$DOMAIN ]; then
       print_v i "Creating $BACKUP_DIRECTORY/$DOMAIN"
       mkdir -p $BACKUP_DIRECTORY/$DOMAIN
@@ -273,6 +278,7 @@ for DOMAIN in $DOMAINS_NOTRUNNING; do
    fi
    BACKUP_DIRECTORY_BASE=$BACKUP_DIRECTORY
    BACKUP_DIRECTORY="$BACKUP_DIRECTORY/$DOMAIN"
+   print_v d "Backupdestination for '$DOMAIN': $BACKUP_DIRECTORY"
    declare -a all_backing_files=()
    if [ "$BACKUP_DIRECTORY" == "" ]; then
          print_v e "-b flag (directory) required for backing up the shut-off domain '$DOMAIN'"
@@ -313,8 +319,8 @@ for DOMAIN in $DOMAINS_NOTRUNNING; do
       for ((i = 0; i < ${#block_devices[@]}; i++)); do
          backing_file=""
          block_device="${block_devices[$i]}"
-         print_v d "Backing up: cp -up $backing_file $BACKUP_DIRECTORY/"
-         cp -aup "$block_device" "$BACKUP_DIRECTORY"/ || print_v e "Unable to cp -up $block_device"
+         print_v d "Backing up the current blockdevice '$block_device'"
+         cp -aup "$block_device" "$BACKUP_DIRECTORY"/ || print_v e "Unable to backup '$block_device'"
          
          get_backing_file "$block_device" backing_file
          j=0
@@ -324,20 +330,20 @@ for DOMAIN in $DOMAINS_NOTRUNNING; do
             all_backing_files[$j]=$backing_file
             print_v d "Parent block device: '$backing_file'"
             #In theory snapshots are unchanged so we can use one time cp instead of rsync
-            print_v d "Backing up: cp -up $backing_file $BACKUP_DIRECTORY/"
-            cp -aup "$backing_file" "$BACKUP_DIRECTORY"/ || print_v e "Unable to cp -up $backing_file"
+            print_v d "Backing up '$backing_file'"
+            cp -aup "$backing_file" "$BACKUP_DIRECTORY"/ || print_v e "Unable to backup '$backing_file'"
             #get next backing file if it exists
             get_backing_file "$backing_file" parent_backing_file
             print_v d "Next file in backing file chain: '$parent_backing_file'"
             backing_file="$parent_backing_file"
          done
       done
-      print_v d "All ${#all_backing_files[@]} block files for '$DOMAIN': $block_device : ${all_backing_files[*]}"
       _ret=$?
       print_v v "Dump config of '$DOMAIN' to backupdestination"
       $VIRSH dumpxml $DOMAIN > $BACKUP_DIRECTORY/$DOMAIN-$(date +%Y-%m-%d_%H:%M:%S).xml
       unlock "$DOMAIN"
    fi
+   print_v i "Domain '$DOMAIN' done"
    BACKUP_DIRECTORY=$BACKUP_DIRECTORY_BASE
 done
 

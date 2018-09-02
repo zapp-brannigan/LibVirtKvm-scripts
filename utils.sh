@@ -335,8 +335,7 @@ function snapshot_domain() {
                   backing_file_base=$(basename "${snapshot_chain[$j]}")
                   new_backing_file="$BACKUP_DIRECTORY/$backing_file_base"
 
-                  print_v v \
-                     "Copy backing file '${snapshot_chain[$j]}' to '$new_backing_file'"
+                  print_v v "Backing up '${snapshot_chain[$j]}'"
                   cp -au "${snapshot_chain[$j]}" "$new_backing_file"
                done
             done
