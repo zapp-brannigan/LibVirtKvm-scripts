@@ -70,7 +70,8 @@ function print_usage() {
 
    Usage:
 
-   $0 [-c|-C] [-q|-s <directory>] [-h] [-d] [-v] [-V] [-b <directory>] [-m <method>] <domain name>|all
+   $0 [-c|-C] [-q|-s <directory>] [-h] [-d] [-v] [-V] [-S] [-b <directory>] [-m <method>] <domain name>|all
+   $0 -H
 
    Options
       -b <directory>    Copy previous snapshot/base image to the specified <directory>
@@ -285,7 +286,7 @@ function snapshot_domain() {
    print_v d "Using timestamp '$timestamp'"
 
    # Dump VM state
-   if [ "$DUMP_STATE" -eq 1 ]; then
+   if [ ! -z ${DUMP_STATE+x} ] && [ "$DUMP_STATE" -eq 1 ]; then
       print_v v "Dumping domain state"
       dump_state "$domain_name" "$timestamp"
       if [ $? -ne 0 ]; then
@@ -302,7 +303,7 @@ function snapshot_domain() {
    # Create an external snapshot for each block device
    print_v d "Snapshotting block devices for '$domain_name' using suffix '$SNAPSHOT_PREFIX-$timestamp'"
 
-   if [ $QUIESCE -eq 1 ]; then
+   if [ ! -z ${QUIESCE+x} ] && [ $QUIESCE -eq 1 ]; then
       print_v d "Quiesce requested"
       extra_args="--quiesce"
    fi
@@ -344,8 +345,8 @@ function snapshot_domain() {
          print_v d "No backup directory specified"
       fi
    else
-      print_v e \
-      "Snapshot for '$domain_name' failed! Exit code: $_ret\n'$command_output'"
+      print_v e "Snapshot for '$domain_name' failed!"
+      print_v e "Reason: <$command_output>"
       _ret=1
    fi
 

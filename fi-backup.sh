@@ -19,6 +19,12 @@
 # Copyright (C) 2013 2014 2015 Davide Guerri - davide.guerri@gmail.com
 #
 export LANG=C
+
+if [ `id -u` -ne 0 ];then
+   echo -e "$(date +%Y-%m-%d_%H:%M:%S) [ERR] Please run this script as superuser"
+   exit 1
+fi
+
 VERSION="2.1.0fork"
 APP_NAME="fi-backup"
 
@@ -31,26 +37,11 @@ VIRSH="/usr/bin/virsh"
 QEMU="/usr/bin/qemu-system-x86_64"
 SYSTEMD_CAT="/usr/bin/systemd-cat"
 
-# Defaults and constants
-BACKUP_DIRECTORY=/data/kvm/bkp
-CONSOLIDATION=0
-DEBUG=0
-VERBOSE=0
-QUIESCE=0
-DUMP_STATE=0
-SNAPSHOT=1
-SNAPSHOT_PREFIX="bimg"
-DUMP_STATE_TIMEOUT=60
-DUMP_STATE_DIRECTORY=
-CONSOLIDATION_SET=0
-CONSOLIDATION_METHOD="blockcommit"
-CONSOLIDATION_FLAGS=(--wait)
-QEMU_IMG_INFO_FLAGS=()
-ALL_RUNNING_DOMAINS=0
-SYSTEMD_JOURNAL=0
-RETENTION_DAYS=5
-BACKUP_SETS_TO_KEEP=1
-
+source fi-backup.conf > /dev/null 2>&1
+if [ $? -ne 0 ]; then
+    echo -e "$(date +%Y-%m-%d_%H:%M:%S) [ERR] fi-backup.conf not found!"
+    exit 1
+fi
 source utils.sh > /dev/null 2>&1
 if [ $? -ne 0 ]; then
     echo -e "$(date +%Y-%m-%d_%H:%M:%S) [ERR] utils.sh not found!"
@@ -71,7 +62,7 @@ while true; do
         shift; shift
       ;;
       -c|--consolidate_only)
-         if [ $CONSOLIDATION -eq 1 ]; then
+         if [ ! -z ${CONSOLIDATION+x} ] && [ $CONSOLIDATION -eq 1 ]; then
             print_usage "-c or -C already specified!"
           exit 1
          fi
@@ -80,7 +71,7 @@ while true; do
          shift
       ;;
       -C|--consolidate_and_snaphot)
-         if [ $CONSOLIDATION -eq 1 ]; then
+         if [ ! -z ${CONSOLIDATION+x} ] && [ $CONSOLIDATION -eq 1 ]; then
             print_usage "-c or -C already specified!"
          exit 1
          fi
@@ -165,31 +156,29 @@ if [ ! -z ${CLEANING+x} ]; then
    exit $?
 fi
 
-if [ $ALL_RUNNING_DOMAINS -eq 1 ]; then
-   print_v d "all_running_domains = '$ALL_RUNNING_DOMAINS' so all running domains will be backed up"
-fi
-
 # Parameters validation
-if [ $CONSOLIDATION -eq 1 ]; then
-   if [ $QUIESCE -eq 1 ]; then
-      print_usage "consolidation (-c | -C) and quiesce (-q) are not compatible"
-      exit 1
-   fi
-   if [ $DUMP_STATE -eq 1 ]; then
-      print_usage \
-         "consolidation (-c | -C) and dump state (-s) are not compatible"
-      exit 1
-   fi
-   if [ $CONSOLIDATION_SET -eq 0 ]; then
-     if check_version "$(qemu_version)" '2.1.0' && \
-        check_version "$(libvirt_version)" '1.2.9'; then
-        CONSOLIDATION_METHOD="blockcommit"
-        CONSOLIDATION_FLAGS=(--wait --pivot --active)
-     fi
-   fi
+if [ ! -z ${CONSOLIDATION+x} ]; then
+    if [ $CONSOLIDATION -eq 1 ]; then
+    if [ ! -z ${QUIESCE+x} ] && [ $QUIESCE -eq 1 ]; then
+        print_usage "consolidation (-c | -C) and quiesce (-q) are not compatible"
+        exit 1
+    fi
+    if [ ! -z ${DUMP_STATE+x} ] && [ $DUMP_STATE -eq 1 ]; then
+        print_usage \
+            "consolidation (-c | -C) and dump state (-s) are not compatible"
+        exit 1
+    fi
+    if [ $CONSOLIDATION_SET -eq 0 ]; then
+        if check_version "$(qemu_version)" '2.1.0' && \
+            check_version "$(libvirt_version)" '1.2.9'; then
+            CONSOLIDATION_METHOD="blockcommit"
+            CONSOLIDATION_FLAGS=(--wait --pivot --active)
+        fi
+    fi
+    fi
 fi
 
-if [ $DUMP_STATE -eq 1 ]; then
+if [ ! -z ${DUMP_STATE+x} ] && [ $DUMP_STATE -eq 1 ]; then
    if [ $QUIESCE -eq 1 ]; then
       print_usage "dump state (-s) and quiesce (-q) are not compatible"
       exit 1
@@ -202,16 +191,10 @@ if [ -z "$DOMAIN_NAME" ] && [ $ALL_RUNNING_DOMAINS -eq 0 ]; then
    print_usage "<domain name> is missing!"
    exit 2
 fi
-if [ ! -z "$DOMAIN_NAME" ] && [ $ALL_RUNNING_DOMAINS -eq 1 ]; then
-   print_usage "Setting all_running (-r) and specifying domains not compatible"
-   exit 2
-fi
 
 DOMAINS_RUNNING=
 DOMAINS_NOTRUNNING=
-if [ "$ALL_RUNNING_DOMAINS" -eq 1 ]; then
-   DOMAINS_RUNNING=$($VIRSH -q -r list --state-running | awk '{print $2;}')
-elif [ "$DOMAIN_NAME" == "all" ]; then
+if [ "$DOMAIN_NAME" == "all" ]; then
    DOMAINS_RUNNING=$($VIRSH -q -r list --state-running | awk '{print $2;}')
    DOMAINS_NOTRUNNING=$($VIRSH -q -r list --all --state-shutoff --state-paused | awk '{print $2;}')
 else
@@ -239,20 +222,20 @@ for DOMAIN in $DOMAINS_RUNNING; do
    print_v i "Processing domain '$DOMAIN'"
    print_v d "Backupdestination for '$DOMAIN': $BACKUP_DIRECTORY"
    _ret=0
-   if [ $SNAPSHOT -eq 1 ]; then
-      try_lock "$DOMAIN"
-      if [ $? -eq 0 ]; then
-         snapshot_domain "$DOMAIN"
-         _ret=$?
-         unlock "$DOMAIN"
+   try_lock "$DOMAIN"
+   if [ $? -eq 0 ]; then
+      snapshot_domain "$DOMAIN"
+      _ret=$?
+      unlock "$DOMAIN"
+      if [ $_ret -eq 0 ];then
          print_v v "Dump config of $DOMAIN to backupdestination"
          $VIRSH dumpxml $DOMAIN > $BACKUP_DIRECTORY/$DOMAIN-$(date +%Y-%m-%d_%H:%M:%S).xml
-      else
-         print_v e "Another instance of $0 is already running on '$DOMAIN'! Skipping backup of '$DOMAIN'"
       fi
+   else
+      print_v e "Another instance of $0 is already running on '$DOMAIN'! Skipping backup of '$DOMAIN'"
    fi
 
-   if [ $_ret -eq 0 ] && [ $CONSOLIDATION -eq 1 ]; then
+   if [ $_ret -eq 0 ] && [ ! -z ${CONSOLIDATION+x} ] && [ $CONSOLIDATION -eq 1 ]; then
       try_lock "$DOMAIN"
       if [ $? -eq 0 ]; then
          consolidate_domain "$DOMAIN"
@@ -285,7 +268,7 @@ for DOMAIN in $DOMAINS_NOTRUNNING; do
          print_v e "Skipping backup of '$DOMAIN'"
          _ret=1
    fi
-   if [ $_ret -eq 0 ] && [ $CONSOLIDATION -eq 1 ]; then
+   if [ $_ret -eq 0 ] && [ ! -z ${CONSOLIDATION+x} ] && [ $CONSOLIDATION -eq 1 ]; then
       print_v e "Consolidation only works with running domains. '$DOMAIN' is not running! Doing full backup only of '$DOMAIN'"
       if [ "$DOMAIN_NAME" != "all" ]; then
          print_v e "Skipping consolidation/backup of '$DOMAIN'"
