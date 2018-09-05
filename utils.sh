@@ -335,7 +335,10 @@ function snapshot_domain() {
                for ((j = 1; j < ${#snapshot_chain[@]} ; j++)); do
                   backing_file_base=$(basename "${snapshot_chain[$j]}")
                   new_backing_file="$BACKUP_DIRECTORY/$backing_file_base"
-
+                  if [ -f $new_backing_file ] && [ $(stat -c %Y ${snapshot_chain[$j]} 2>/dev/null) -eq $(stat -c %Y $new_backing_file 2>/dev/null) ]; then
+                     print_v d "'${snapshot_chain[$j]}' has already been backed up, skipping"
+                     continue
+                  fi
                   print_v v "Backing up '${snapshot_chain[$j]}'"
                   cp -au "${snapshot_chain[$j]}" "$new_backing_file"
                done

@@ -207,11 +207,13 @@ else
      fi
    done
 fi
-
+DOMAINS_RUNNING=${DOMAINS_RUNNING//$'\n'/' '}
+DOMAINS_NOTRUNNING=${DOMAINS_NOTRUNNING//$'\n'/' '}
 print_v d "Domains RUNNING to backup: $DOMAINS_RUNNING"
 print_v d "Domains NOTRUNNING to backup: $DOMAINS_NOTRUNNING"
 
 for DOMAIN in $DOMAINS_RUNNING; do
+   print_v i "Processing domain '$DOMAIN'"
    if [ ! -d $BACKUP_DIRECTORY/$DOMAIN ]; then
       print_v i "Creating $BACKUP_DIRECTORY/$DOMAIN"
       mkdir -p $BACKUP_DIRECTORY/$DOMAIN
@@ -219,21 +221,23 @@ for DOMAIN in $DOMAINS_RUNNING; do
    fi
    BACKUP_DIRECTORY_BASE=$BACKUP_DIRECTORY
    BACKUP_DIRECTORY="$BACKUP_DIRECTORY/$DOMAIN"
-   print_v i "Processing domain '$DOMAIN'"
    print_v d "Backupdestination for '$DOMAIN': $BACKUP_DIRECTORY"
    _ret=0
-   try_lock "$DOMAIN"
-   if [ $? -eq 0 ]; then
-      snapshot_domain "$DOMAIN"
-      _ret=$?
-      unlock "$DOMAIN"
-      if [ $_ret -eq 0 ];then
-         print_v v "Dump config of $DOMAIN to backupdestination"
-         $VIRSH dumpxml $DOMAIN > $BACKUP_DIRECTORY/$DOMAIN-$(date +%Y-%m-%d_%H:%M:%S).xml
+   if [ $SNAPSHOT -eq 1 ]; then
+      try_lock "$DOMAIN"
+      if [ $? -eq 0 ]; then
+         snapshot_domain "$DOMAIN"
+         _ret=$?
+         unlock "$DOMAIN"
+         if [ $_ret -eq 0 ];then
+            print_v v "Dump config of $DOMAIN to backupdestination"
+            $VIRSH dumpxml $DOMAIN > $BACKUP_DIRECTORY/$DOMAIN-$(date +%Y-%m-%d_%H:%M:%S).xml
+         fi
+      else
+         print_v e "Another instance of $0 is already running on '$DOMAIN'! Skipping backup of '$DOMAIN'"
       fi
-   else
-      print_v e "Another instance of $0 is already running on '$DOMAIN'! Skipping backup of '$DOMAIN'"
    fi
+
 
    if [ $_ret -eq 0 ] && [ ! -z ${CONSOLIDATION+x} ] && [ $CONSOLIDATION -eq 1 ]; then
       try_lock "$DOMAIN"
