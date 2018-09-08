@@ -47,7 +47,7 @@ if [ $? -ne 0 ]; then
     echo -e "$(date +%Y-%m-%d_%H:%M:%S) [ERR] utils.sh not found!"
     exit 1
 fi
-TEMP=$(getopt -n "$APP_NAME" -o b:cCm:s:qrdhvVSH --long backup_dir:,consolidate_only,consolidate_and_snapshot,method:,quiesce,all_running,dump_state_dir:,debug,help,version,verbose,stdout,housekeeping -- "$@")
+TEMP=$(getopt -n "$APP_NAME" -o b:cCm:s:qdhvVSH --long backup_dir:,consolidate_only,consolidate_and_snapshot,method:,quiesce,dump_state_dir:,debug,help,version,verbose,stdout,housekeeping -- "$@")
 if [ $? != 0 ] ; then echo "Failed parsing options." >&2 ; exit 1 ; fi
 
 eval set -- "$TEMP"
@@ -94,10 +94,6 @@ while true; do
       ;;
       -q|--quiesce)
          QUIESCE=1
-         shift
-      ;;
-      -r|--all_running)
-         ALL_RUNNING_DOMAINS=1
          shift
       ;;
       -s|--dump_state_dir)
@@ -153,7 +149,8 @@ fi
 if [ ! -z ${CLEANING+x} ]; then
    print_v i "Clean-up of old backupsets requested"
    clean_backupsets
-   exit $?
+   print_v i "Clean-up finished"
+   exit $_ret
 fi
 
 # Parameters validation
@@ -186,9 +183,10 @@ if [ ! -z ${DUMP_STATE+x} ] && [ $DUMP_STATE -eq 1 ]; then
 fi
 
 DOMAIN_NAME="$1"
-
-if [ -z "$DOMAIN_NAME" ] && [ $ALL_RUNNING_DOMAINS -eq 0 ]; then
-   print_usage "<domain name> is missing!"
+if [ -z $DOMAIN_NAME ]; then
+   echo $?
+   echo $DOMAIN_NAME
+   print_usage
    exit 2
 fi
 
@@ -209,8 +207,8 @@ else
 fi
 DOMAINS_RUNNING=${DOMAINS_RUNNING//$'\n'/' '}
 DOMAINS_NOTRUNNING=${DOMAINS_NOTRUNNING//$'\n'/' '}
-print_v d "Domains RUNNING to backup: $DOMAINS_RUNNING"
-print_v d "Domains NOTRUNNING to backup: $DOMAINS_NOTRUNNING"
+print_v d "Domains RUNNING to process: $DOMAINS_RUNNING"
+print_v d "Domains NOTRUNNING to process: $DOMAINS_NOTRUNNING"
 
 for DOMAIN in $DOMAINS_RUNNING; do
    print_v i "Processing domain '$DOMAIN'"
@@ -221,11 +219,11 @@ for DOMAIN in $DOMAINS_RUNNING; do
    fi
    BACKUP_DIRECTORY_BASE=$BACKUP_DIRECTORY
    BACKUP_DIRECTORY="$BACKUP_DIRECTORY/$DOMAIN"
-   print_v d "Backupdestination for '$DOMAIN': $BACKUP_DIRECTORY"
    _ret=0
    if [ $SNAPSHOT -eq 1 ]; then
       try_lock "$DOMAIN"
       if [ $? -eq 0 ]; then
+         print_v d "Backupdestination for '$DOMAIN': $BACKUP_DIRECTORY"
          snapshot_domain "$DOMAIN"
          _ret=$?
          unlock "$DOMAIN"
@@ -257,7 +255,6 @@ done
 for DOMAIN in $DOMAINS_NOTRUNNING; do
    _ret=0
    print_v i "Processing domain '$DOMAIN'"
-   print_v i "Domain '$DOMAIN' is not in a running state"
    if [ ! -d $BACKUP_DIRECTORY/$DOMAIN ]; then
       print_v i "Creating $BACKUP_DIRECTORY/$DOMAIN"
       mkdir -p $BACKUP_DIRECTORY/$DOMAIN
@@ -265,7 +262,6 @@ for DOMAIN in $DOMAINS_NOTRUNNING; do
    fi
    BACKUP_DIRECTORY_BASE=$BACKUP_DIRECTORY
    BACKUP_DIRECTORY="$BACKUP_DIRECTORY/$DOMAIN"
-   print_v d "Backupdestination for '$DOMAIN': $BACKUP_DIRECTORY"
    declare -a all_backing_files=()
    if [ "$BACKUP_DIRECTORY" == "" ]; then
          print_v e "-b flag (directory) required for backing up the shut-off domain '$DOMAIN'"
@@ -273,14 +269,8 @@ for DOMAIN in $DOMAINS_NOTRUNNING; do
          _ret=1
    fi
    if [ $_ret -eq 0 ] && [ ! -z ${CONSOLIDATION+x} ] && [ $CONSOLIDATION -eq 1 ]; then
-      print_v e "Consolidation only works with running domains. '$DOMAIN' is not running! Doing full backup only of '$DOMAIN'"
-      if [ "$DOMAIN_NAME" != "all" ]; then
-         print_v e "Skipping consolidation/backup of '$DOMAIN'"
-         _ret=1
-      else
-         print_v d "Doing full backup (not consolidation) of '$DOMAIN'"
-         _ret=0
-      fi
+      print_v i "Skip consolidation of '$DOMAIN' because it is not running"
+      continue
    fi
 
    if [ $_ret -eq 0 ]; then
@@ -291,6 +281,8 @@ for DOMAIN in $DOMAINS_NOTRUNNING; do
       fi
    fi
 
+   print_v d "Backupdestination for '$DOMAIN': '$BACKUP_DIRECTORY'"
+   print_v i "Domain '$DOMAIN' is not in a running state"
    if [ $_ret -eq 0 ]; then
       get_block_devices "$DOMAIN" block_devices
       for ((i = 0; i < ${#block_devices[@]}; i++)); do

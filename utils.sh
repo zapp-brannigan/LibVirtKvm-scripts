@@ -63,8 +63,6 @@ function print_v() {
 }
 
 function print_usage() {
-   [ -n "$1" ] && (echo "" ; print_v e "$1\n")
-
    cat <<EOU
    $APP_NAME version $VERSION - Davide Guerri <davide.guerri@gmail.com>
 
@@ -384,7 +382,7 @@ function consolidate_domain() {
    local dom_state=
    dom_state=$($VIRSH domstate "$domain_name" 2>&1)
    if [ "$dom_state" != "running" ]; then
-      print_v e "Error: Consolidation requires '$domain_name' to be running"
+      print_v e "Consolidation requires '$domain_name' to be running"
       return 1
    fi
 
@@ -396,7 +394,7 @@ function consolidate_domain() {
    fi
 
    print_v d "Consolidation of block devices for '$domain_name' requested"
-   print_v d "Block devices to be consolidated:\n\t${block_devices[*]}"
+   print_v d "Block devices to be consolidated: '${block_devices[*]}'"
    print_v d "Consolidation method: $CONSOLIDATION_METHOD"
 
    for ((i = 0; i < ${#block_devices[@]}; i++)); do
@@ -547,7 +545,7 @@ function move_backupset {
    local ts=$(date +%Y-%m-%d_%H:%M:%S)
    local DOMAIN=$1
    local BACKUP_DIRECTORY=$2
-   print_v v "Moving current backups of '$DOMAIN' to $BACKUP_DIRECTORY/set_$ts"
+   print_v v "Moving current backups of '$DOMAIN' to '$BACKUP_DIRECTORY/set_$ts'"
    mkdir $BACKUP_DIRECTORY/set_$ts
    chmod 666 $BACKUP_DIRECTORY/set_$ts
    find $BACKUP_DIRECTORY -maxdepth 1 -type f -exec mv {} $BACKUP_DIRECTORY/set_$ts \; > /dev/null 2>&1
@@ -555,7 +553,7 @@ function move_backupset {
 
 # Delete backupset which are older than $RETENTION_DAYS, but keep at least $BACKUP_SETS_TO_KEEP set(s)
 function clean_backupsets {
-   local _ret=0
+   _ret=0
    backed_up=($(find $BACKUP_DIRECTORY -maxdepth 1 -mindepth 1 -type d))
    for vm in ${backed_up[@]}; do
       all_sets=($(find $BACKUP_DIRECTORY/$(basename $vm) -maxdepth 1 -mindepth 1 -type d -name set_*))
@@ -578,5 +576,4 @@ function clean_backupsets {
          done
       fi
    done
-   return $_ret
 }
