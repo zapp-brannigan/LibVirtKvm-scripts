@@ -18,7 +18,7 @@
 #
 function print_v() {
    local level=$1
-   ts=$(date +%Y-%m-%d_%H:%M:%S)
+   local ts=$(date +%Y-%m-%d_%H:%M:%S)
    case $level in
       v) # Verbose
       if [ $VERBOSE -eq 1 ]; then
@@ -612,11 +612,20 @@ function list_backups {
 
 function restore_domain {
    local vm=$1
+   BACKUP_DIRECTORY_BASE=$BACKUP_DIRECTORY
    if [ -z $vm ] || [ $vm == "all" ];then
       _ret=1
       print_usage
       return
    fi
+   
+   $VIRSH dominfo $vm > /dev/null 2>&1
+   if [ $? -eq 0 ];then
+      echo "'$vm' is a existing domain, you need to undefine it first."
+      _ret=1
+      return
+   fi
+   
    echo "You are going to restore domain '$vm'"
    read -p "Continue? [y|N] " con
    if [ ! -z $con ] && ([ $con == "y" ] || [ $con == "Y" ]);then
@@ -630,6 +639,22 @@ function restore_domain {
          return
       fi
       BACKUP_DIRECTORY=$(dirname $vmconfig)
-      
+      sourcefiles=($(sed -n -e "s/.*<source file='\(.*\)'\/>.*/\1/p" $vmconfig))
+      if [ ${#sourcefiles[@]} -eq 0 ];then
+         echo "Sorry, something went wrong...please restore manually"
+         _ret=1
+         return
+      fi
+
+      for disk in ${sourcefiles[@]};do
+         targetdir=$(dirname $disk)
+         disk=$(basename $disk)
+         echo "Copying '$disk' to '$targetdir'"
+         rsync -aS --progress --ignore-existing $BACKUP_DIRECTORY/$disk $targetdir/
+         unset targetdir
+      done
+      $VIRSH define $vmconfig
+      _ret=$?
+      move_backupset $vm $BACKUP_DIRECTORY_BASE/$vm
    fi
 }

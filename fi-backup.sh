@@ -200,6 +200,7 @@ if [ ! -z ${DUMP_STATE+x} ] && [ $DUMP_STATE -eq 1 ]; then
    fi
 fi
 
+rm -f /tmp/fi-backup*
 DOMAIN_NAME="$1"
 if [ -z $DOMAIN_NAME ]; then
    print_usage
@@ -227,6 +228,7 @@ print_v d "Domains RUNNING to process: $DOMAINS_RUNNING"
 print_v d "Domains NOTRUNNING to process: $DOMAINS_NOTRUNNING"
 
 for DOMAIN in $DOMAINS_RUNNING; do
+   stamp=$(date +%Y-%m-%d_%H:%M:%S)
    print_v i "Processing domain '$DOMAIN'"
    if [ ! -d $BACKUP_DIRECTORY/$DOMAIN ]; then
       print_v i "Creating $BACKUP_DIRECTORY/$DOMAIN"
@@ -240,12 +242,13 @@ for DOMAIN in $DOMAINS_RUNNING; do
       try_lock "$DOMAIN"
       if [ $? -eq 0 ]; then
          print_v d "Backupdestination for '$DOMAIN': $BACKUP_DIRECTORY"
+         $VIRSH dumpxml $DOMAIN > /tmp/fi-backup_$DOMAIN-$stamp.xml
          snapshot_domain "$DOMAIN"
          _ret=$?
          unlock "$DOMAIN"
          if [ $_ret -eq 0 ];then
             print_v v "Dump config of $DOMAIN to backupdestination"
-            $VIRSH dumpxml $DOMAIN > $BACKUP_DIRECTORY/$DOMAIN-$(date +%Y-%m-%d_%H:%M:%S).xml
+            mv /tmp/fi-backup_$DOMAIN-$stamp.xml $BACKUP_DIRECTORY/$DOMAIN-$stamp.xml
          fi
       else
          print_v e "Another instance of $0 is already running on '$DOMAIN'! Skipping backup of '$DOMAIN'"
