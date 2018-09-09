@@ -69,7 +69,9 @@ function print_usage() {
    Usage:
 
    $0 [-c|-C] [-q|-s <directory>] [-h] [-d] [-v] [-V] [-S] [-b <directory>] [-m <method>] <domain name>|all
-   $0 -H
+   $0 [-v] [-d] [-S] -H
+   $0 [-v] [-d] [-S] -l <domain name>|all
+   $0 [-v] [-d] [-S] -R <domain name>
 
    Options
       -b <directory>    Copy previous snapshot/base image to the specified <directory>
@@ -78,8 +80,10 @@ function print_usage() {
       -d                Debug
       -h                Print usage and exit
       -H                Remove old backupsets
+      -l                List backups 
       -m <method>       Consolidation method: blockcommit or blockpull
       -q                Use quiescence (qemu agent must be installed in the domain)
+      -R                Restore the given domain (only one domain is allowed)
       -s <directory>    Dump domain status in the specified directory
       -S                Log to stdout instead of systemd-journal
       -v                Verbose
@@ -576,4 +580,56 @@ function clean_backupsets {
          done
       fi
    done
+}
+
+function list_backups {
+   local vm=$1
+   if [ -z $vm ];then
+      _ret=1
+      print_usage
+      return
+   fi
+   _ret=0
+   if [ $vm == "all" ];then
+      all_vms=($(find $BACKUP_DIRECTORY -maxdepth 1 -mindepth 1 -type d -exec basename {} \;))
+   else
+      all_vms=($vm)
+   fi
+   for i in ${all_vms[@]};do
+      all_backups=($(find $BACKUP_DIRECTORY/$i -type f -name "*.xml" -exec basename {} \; 2>/dev/null))
+      if [ $? -ne 0 ];then
+         _ret=1
+         echo "Nothing found for '$i'"
+         continue
+      fi
+      echo "Found ${#all_backups[@]} backups for domain '$i':"
+      sorted=($(printf '%s\n' "${all_backups[@]}"|sort -r))
+      for j in ${sorted[@]};do
+         echo -e "\t${j: -23:-4}"
+      done
+   done
+}
+
+function restore_domain {
+   local vm=$1
+   if [ -z $vm ] || [ $vm == "all" ];then
+      _ret=1
+      print_usage
+      return
+   fi
+   echo "You are going to restore domain '$vm'"
+   read -p "Continue? [y|N] " con
+   if [ ! -z $con ] && ([ $con == "y" ] || [ $con == "Y" ]);then
+      unset con
+      echo "Please enter the timestamp (c&p from a '-l' run)"
+      read -p "Your choice: " ts
+      vmconfig=($(find $BACKUP_DIRECTORY/$vm -type f -name "$vm-$ts.xml" 2>/dev/null))
+      if [ ${#vmconfig[@]} -eq 0 ];then
+         echo "No backup found"
+         _ret=1
+         return
+      fi
+      BACKUP_DIRECTORY=$(dirname $vmconfig)
+      
+   fi
 }
