@@ -68,10 +68,10 @@ function print_usage() {
 
    Usage:
 
-   $0 [-c|-C] [-q|-s <directory>] [-h] [-d] [-v] [-V] [-S] [-b <directory>] [-m <method>] <domain name>|all
+   $0 [-c|-C] [-q|-s <directory>] [-h] [-d] [-v] [-V] [-S] [-b <directory>] [-m <method>] <domain1 [domain2 domainN]>|all
    $0 [-v] [-d] [-S] -H
    $0 [-v] [-d] [-S] -l <domain name>|all
-   $0 [-v] [-d] [-S] -R <domain name>
+   $0 [-v] [-d] [-S] -R <domain>
 
    Options
       -b <directory>    Copy previous snapshot/base image to the specified <directory>
@@ -584,12 +584,6 @@ function clean_backupsets {
 
 function list_backups {
    local vm=$1
-   if [ -z $vm ];then
-      _ret=1
-      print_usage
-      return
-   fi
-   _ret=0
    if [ $vm == "all" ];then
       all_vms=($(find $BACKUP_DIRECTORY -maxdepth 1 -mindepth 1 -type d -exec basename {} \;))
    else
@@ -611,6 +605,16 @@ function list_backups {
 }
 
 function restore_domain {
+   executables=("rsync" "uuidgen" "hexdump" "sed")
+   for i in ${executables[@]};do
+      which $i > /dev/null 2>&1
+      if [ $? -ne 0 ];then
+         _ret=1
+         echo "Excutable '$i' not found, please install it"
+         return
+      fi
+   done
+   
    local vm=$1
    BACKUP_DIRECTORY_BASE=$BACKUP_DIRECTORY
    if [ -z $vm ] || [ $vm == "all" ];then
@@ -618,12 +622,14 @@ function restore_domain {
       print_usage
       return
    fi
-   
-   $VIRSH dominfo $vm > /dev/null 2>&1
-   if [ $? -eq 0 ];then
-      echo "'$vm' is a existing domain, you need to undefine it first."
-      _ret=1
-      return
+
+   if [ -z ${RESTORE_AS_COPY+x} ];then
+        $VIRSH dominfo $vm > /dev/null 2>&1
+        if [ $? -eq 0 ];then
+            echo "'$vm' is a existing domain, you need to undefine it first."
+            _ret=1
+            return
+        fi
    fi
    
    echo "You are going to restore domain '$vm'"
@@ -646,13 +652,37 @@ function restore_domain {
          return
       fi
 
-      for disk in ${sourcefiles[@]};do
-         targetdir=$(dirname $disk)
-         disk=$(basename $disk)
-         echo "Copying '$disk' to '$targetdir'"
-         rsync -aS --progress --ignore-existing $BACKUP_DIRECTORY/$disk $targetdir/
+      if [ ! -z ${RESTORE_AS_COPY+x} ];then
+         cp $vmconfig /tmp/
+         vmconfig_tmp="/tmp/$(basename $vmconfig)"
+         read -p "Please enter a new name: " new_name
+         new_uuid=$(uuidgen)
+         sed -i -e "s/<name>\(.*\)<\/name>/<name>$new_name<\/name>/" $vmconfig_tmp
+         sed -i -e "s/<uuid>\(.*\)<\/uuid>/<uuid>$new_uuid<\/uuid>/" $vmconfig_tmp
+         mac_addrs=($(sed -n -e "s/.*<mac address='\(.*\)'\/>.*/\1/p" $vmconfig))
+         for i in ${mac_addrs[@]};do
+            new_mac=$(echo -n 52:54:00; dd bs=1 count=3 if=/dev/random 2>/dev/null |hexdump -v -e '/1 ":%02X"')
+            sed -i -e "s/<mac address='$i'\/>/<mac address='$new_mac'\/>/" $vmconfig_tmp
+         done
+         vmconfig=$vmconfig_tmp
+      fi
+      
+      c=0
+      for _hd in ${sourcefiles[@]};do
+         targetdir=$(dirname $_hd)
+         hd=$(basename $_hd)
+         if [ ! -z ${RESTORE_AS_COPY+x} ];then
+            echo "Copying '$hd' as '$new_name-$c.qcow2' to '$targetdir'"
+            sed -i -e "s/<source file='${_hd//\//\\/}'\/>/<source file='${targetdir//\//\\/}\/$new_name-$c.qcow2'\/>/" $vmconfig_tmp
+            rsync -aS --progress --ignore-existing $BACKUP_DIRECTORY/$hd $targetdir/$new_name-$c.qcow2
+            let c++
+         else
+            echo "Copying '$hd' to '$targetdir'"
+            rsync -aS --progress --ignore-existing $BACKUP_DIRECTORY/$hd $targetdir/$hd
+         fi
          unset targetdir
       done
+      
       $VIRSH define $vmconfig
       _ret=$?
       move_backupset $vm $BACKUP_DIRECTORY_BASE/$vm

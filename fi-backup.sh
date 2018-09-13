@@ -47,7 +47,7 @@ if [ $? -ne 0 ]; then
     echo -e "$(date +%Y-%m-%d_%H:%M:%S) [ERR] utils.sh not found!"
     exit 1
 fi
-TEMP=$(getopt -n "$APP_NAME" -o b:cCm:s:qdhvVSHlR --long backup_dir:,consolidate_only,consolidate_and_snapshot,method:,quiesce,dump_state_dir:,debug,help,version,verbose,stdout,housekeeping,list-backups,restore -- "$@")
+TEMP=$(getopt -n "$APP_NAME" -o b:cCm:s:qdhvVSHlR --long backup_dir:,consolidate_only,consolidate_and_snapshot,method:,quiesce,dump_state_dir:,debug,help,version,verbose,stdout,housekeeping,list-backups,restore,as-copy -- "$@")
 if [ $? != 0 ] ; then echo "Failed parsing options." >&2 ; exit 1 ; fi
 
 eval set -- "$TEMP"
@@ -141,6 +141,10 @@ while true; do
         RESTORE=yes
         shift
       ;;
+      --as-copy)
+        RESTORE_AS_COPY=yes
+        shift
+      ;;
     -- ) shift; break ;;
     * ) break ;;
   esac
@@ -162,7 +166,14 @@ if [ ! -z ${CLEANING+x} ]; then
 fi
 
 if [ ! -z ${LIST_BACKUPS+x} ]; then
-   list_backups $1
+   _ret=0
+   if [ -z "$@" ];then
+      _ret=1
+      print_usage
+   fi
+   for i in $@;do
+      list_backups $i
+   done
    exit $_ret
 fi
 
@@ -201,8 +212,8 @@ if [ ! -z ${DUMP_STATE+x} ] && [ $DUMP_STATE -eq 1 ]; then
 fi
 
 rm -f /tmp/fi-backup*
-DOMAIN_NAME="$1"
-if [ -z $DOMAIN_NAME ]; then
+DOMAIN_NAME="$@"
+if [ -z "$DOMAIN_NAME" ]; then
    print_usage
    exit 2
 fi
