@@ -16,6 +16,8 @@
 # fi-backup - Online Forward Incremental Libvirt/KVM backup
 # Copyright (C) 2013 2014 2015 Davide Guerri - davide.guerri@gmail.com
 #
+# Forked in 2018 by Zapp-Brannigan (fuerst.reinje@web.de)
+#
 function print_v() {
    local level=$1
    local ts=$(date +%Y-%m-%d_%H:%M:%S)
@@ -64,13 +66,13 @@ function print_v() {
 
 function print_usage() {
    cat <<EOU
-   $APP_NAME version $VERSION - Davide Guerri <davide.guerri@gmail.com>
+   $APP_NAME version $VERSION
 
    Usage:
 
    $0 [-c|-C] [-q|-s <directory>] [-h] [-d] [-v] [-V] [-S] [-b <directory>] [-m <method>] <domain1 [domain2 domainN]>|all
    $0 [-v] [-d] [-S] -H
-   $0 [-v] [-d] [-S] -l <domain name>|all
+   $0 [-v] [-d] [-S] -l <domain1 [domain2 domainN]>|all
    $0 [-v] [-d] [-S] -R <domain>
 
    Options
@@ -307,7 +309,13 @@ function snapshot_domain() {
 
    if [ ! -z ${QUIESCE+x} ] && [ $QUIESCE -eq 1 ]; then
       print_v d "Quiesce requested"
-      extra_args="--quiesce"
+      $VIRSH dumpxml $domain_name |grep -i guest|grep "'connected'" > /dev/null 2>&1
+      if [ $? -eq 0 ];then
+         print_v d "Guest-Agent seems to be ready"
+         extra_args="--quiesce"
+      else
+         print_v d "Guest-Agent seems not to be connected, performing a non-quiesced backup"
+      fi
    fi
 
    command_output=$($VIRSH -q snapshot-create-as "$domain_name" \
@@ -422,8 +430,7 @@ function consolidate_domain() {
          # Consolidate the block device
          #echo "ABOUT TO RUN:" 
          #echo "$VIRSH -q $CONSOLIDATION_METHOD $domain_name $block_device ${CONSOLIDATION_FLAGS[*]}"
-         command_output=$($VIRSH -q "$CONSOLIDATION_METHOD" "$domain_name" \
-            "$block_device" "${CONSOLIDATION_FLAGS[@]}" 2>&1)
+         command_output=$($VIRSH -q "$CONSOLIDATION_METHOD" "$domain_name" "$block_device" "${CONSOLIDATION_FLAGS[@]}" 2>&1)
          if [ $? -eq 0 ]; then
             print_v v "Consolidation of block device '$block_device' for '$domain_name' successful"
          else
@@ -558,6 +565,7 @@ function move_backupset {
 # Delete backupset which are older than $RETENTION_DAYS, but keep at least $BACKUP_SETS_TO_KEEP set(s)
 function clean_backupsets {
    _ret=0
+   find $BACKUP_DIRECTORY -type d -empty -delete
    backed_up=($(find $BACKUP_DIRECTORY -maxdepth 1 -mindepth 1 -type d))
    for vm in ${backed_up[@]}; do
       all_sets=($(find $BACKUP_DIRECTORY/$(basename $vm) -maxdepth 1 -mindepth 1 -type d -name set_*))
@@ -605,16 +613,6 @@ function list_backups {
 }
 
 function restore_domain {
-   executables=("rsync" "uuidgen" "hexdump" "sed")
-   for i in ${executables[@]};do
-      which $i > /dev/null 2>&1
-      if [ $? -ne 0 ];then
-         _ret=1
-         echo "Excutable '$i' not found, please install it"
-         return
-      fi
-   done
-   
    local vm=$1
    BACKUP_DIRECTORY_BASE=$BACKUP_DIRECTORY
    if [ -z $vm ] || [ $vm == "all" ];then
@@ -675,6 +673,11 @@ function restore_domain {
             echo "Copying '$hd' as '$new_name-$c.qcow2' to '$targetdir'"
             sed -i -e "s/<source file='${_hd//\//\\/}'\/>/<source file='${targetdir//\//\\/}\/$new_name-$c.qcow2'\/>/" $vmconfig_tmp
             rsync -aS --progress --ignore-existing $BACKUP_DIRECTORY/$hd $targetdir/$new_name-$c.qcow2
+            $QEMU_IMG info $targetdir/$new_name-$c.qcow2 | grep "backing file:" > /dev/null 2>&1
+            if [ $? -eq 0 ];then
+               echo "Set new backing file: $targetdir/$new_name-$((c+1)).qcow2"
+               $QEMU_IMG rebase -f qcow2 -u -b $targetdir/$new_name-$((c+1)).qcow2 $targetdir/$new_name-$c.qcow2
+            fi
             let c++
          else
             echo "Copying '$hd' to '$targetdir'"
@@ -682,9 +685,26 @@ function restore_domain {
          fi
          unset targetdir
       done
-      
+      if [ ! -z ${RESTORE_AS_COPY+x} ];then
+         c=0
+         n=0
+         for _hd in ${sourcefiles[@]};do
+            targetdir=$(dirname $_hd)
+            $QEMU_IMG commit $targetdir/$new_name-$c.qcow2 > /dev/null 2>&1
+            if [ $? -ne 0 ];then
+               sed -i -e "s/<source file='${targetdir//\//\\/}\/$new_name-$n.qcow2'\/>/<source file='${targetdir//\//\\/}\/$new_name-$c.qcow2'\/>/" $vmconfig_tmp
+               n=$((c+1))
+            else
+               rm $targetdir/$new_name-$c.qcow2
+               
+            fi
+            let c++
+         done
+      fi
       $VIRSH define $vmconfig
       _ret=$?
-      move_backupset $vm $BACKUP_DIRECTORY_BASE/$vm
+      if [ -z ${RESTORE_AS_COPY+x} ];then
+         move_backupset $vm $BACKUP_DIRECTORY_BASE/$vm
+      fi
    fi
 }

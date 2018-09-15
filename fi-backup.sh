@@ -18,6 +18,8 @@
 # fi-backup - Online Forward Incremental Libvirt/KVM backup
 # Copyright (C) 2013 2014 2015 Davide Guerri - davide.guerri@gmail.com
 #
+# Forked in 2018 by Zapp-Brannigan (fuerst.reinje@web.de)
+#
 export LANG=C
 
 if [ `id -u` -ne 0 ];then
@@ -25,7 +27,7 @@ if [ `id -u` -ne 0 ];then
    exit 1
 fi
 
-VERSION="2.1.0fork"
+VERSION="2.1.0.1"
 APP_NAME="fi-backup"
 
 # Fail if one process fails in a pipe
@@ -36,6 +38,15 @@ QEMU_IMG="/usr/bin/qemu-img"
 VIRSH="/usr/bin/virsh"
 QEMU="/usr/bin/qemu-system-x86_64"
 SYSTEMD_CAT="/usr/bin/systemd-cat"
+executables=("rsync" "uuidgen" "hexdump" "sed")
+for i in ${executables[@]};do
+  which $i > /dev/null 2>&1
+  if [ $? -ne 0 ];then
+     _ret=1
+     echo "Excutable '$i' not found, please install it"
+     return
+  fi
+done
 
 source fi-backup.conf > /dev/null 2>&1
 if [ $? -ne 0 ]; then
