@@ -29,6 +29,8 @@ fi
 
 VERSION="2.1.0.1"
 APP_NAME="fi-backup"
+SNAPSHOT=1
+CONSOLIDATION_SET=0
 
 # Fail if one process fails in a pipe
 set -o pipefail
@@ -58,13 +60,13 @@ if [ $? -ne 0 ]; then
     echo -e "$(date +%Y-%m-%d_%H:%M:%S) [ERR] utils.sh not found!"
     exit 1
 fi
-TEMP=$(getopt -n "$APP_NAME" -o b:cCm:s:qdhvVSHlR --long backup_dir:,consolidate_only,consolidate_and_snapshot,method:,quiesce,dump_state_dir:,debug,help,version,verbose,stdout,housekeeping,list-backups,restore,as-copy -- "$@")
+TEMP=$(getopt -n "$APP_NAME" -o b:cCm:s:qdhvVSHlR --long method:,quiesce,debug,help,version,verbose,stdout,housekeeping,list-backups,restore,as-copy -- "$@")
 if [ $? != 0 ] ; then echo "Failed parsing options." >&2 ; exit 1 ; fi
 
 eval set -- "$TEMP"
 while true; do 
    case "$1" in 
-      -b|--backup_dir)
+      -b)
         BACKUP_DIRECTORY=$2
         if [ ! -d "$BACKUP_DIRECTORY" ]; then
            print_v e "Backup directory '$BACKUP_DIRECTORY' doesn't exist!"
@@ -72,7 +74,7 @@ while true; do
         fi
         shift; shift
       ;;
-      -c|--consolidate_only)
+      -c)
          if [ ! -z ${CONSOLIDATION+x} ] && [ $CONSOLIDATION -eq 1 ]; then
             print_usage "-c or -C already specified!"
           exit 1
@@ -81,7 +83,7 @@ while true; do
          SNAPSHOT=0
          shift
       ;;
-      -C|--consolidate_and_snaphot)
+      -C)
          if [ ! -z ${CONSOLIDATION+x} ] && [ $CONSOLIDATION -eq 1 ]; then
             print_usage "-c or -C already specified!"
          exit 1
@@ -107,12 +109,11 @@ while true; do
          QUIESCE=1
          shift
       ;;
-      -s|--dump_state_dir)
+      -s)
          DUMP_STATE=1
          DUMP_STATE_DIRECTORY=$2
          if [ ! -d "$DUMP_STATE_DIRECTORY" ]; then
-            print_v e \
-               "Dump state directory '$DUMP_STATE_DIRECTORY' doesn't exist!"
+            print_v e "Dump state directory '$DUMP_STATE_DIRECTORY' doesn't exist!"
             exit 1
          fi
          shift;shift
@@ -264,6 +265,10 @@ for DOMAIN in $DOMAINS_RUNNING; do
       try_lock "$DOMAIN"
       if [ $? -eq 0 ]; then
          print_v d "Backupdestination for '$DOMAIN': $BACKUP_DIRECTORY"
+         if [ -e $BACKUP_DIRECTORY/.backuptype ] && [ $(cat $BACKUP_DIRECTORY/.backuptype) == "offline" ];then
+            print_v i "Start a new backupset because the last backup was 'offline'"
+            move_backupset $DOMAIN $BACKUP_DIRECTORY
+         fi
          $VIRSH dumpxml $DOMAIN > /tmp/fi-backup_$DOMAIN-$stamp.xml
          snapshot_domain "$DOMAIN"
          _ret=$?
@@ -326,6 +331,10 @@ for DOMAIN in $DOMAINS_NOTRUNNING; do
    print_v i "Domain '$DOMAIN' is not in a running state"
    if [ $_ret -eq 0 ]; then
       get_block_devices "$DOMAIN" block_devices
+      if [ -e $BACKUP_DIRECTORY/.backuptype ] && [ $(cat $BACKUP_DIRECTORY/.backuptype) == "online" ];then
+         print_v i "Start a new backupset because the last backup was 'online'"
+         move_backupset $DOMAIN $BACKUP_DIRECTORY
+      fi
       for ((i = 0; i < ${#block_devices[@]}; i++)); do
          if [ ! -e $BACKUP_DIRECTORY/$(basename ${block_devices[$i]}) ]; then
             continue
@@ -362,6 +371,7 @@ for DOMAIN in $DOMAINS_NOTRUNNING; do
       print_v v "Dump config of '$DOMAIN' to backupdestination"
       $VIRSH dumpxml $DOMAIN > $BACKUP_DIRECTORY/$DOMAIN-$(date +%Y-%m-%d_%H:%M:%S).xml
       unlock "$DOMAIN"
+      (echo "offline" > $BACKUP_DIRECTORY/.backuptype) 2>/dev/null
    fi
    print_v i "Domain '$DOMAIN' done"
    BACKUP_DIRECTORY=$BACKUP_DIRECTORY_BASE

@@ -66,30 +66,41 @@ function print_v() {
 
 function print_usage() {
    cat <<EOU
-   $APP_NAME version $VERSION
+$APP_NAME version $VERSION
 
-   Usage:
+Usage
+=====
 
-   $0 [-c|-C] [-q|-s <directory>] [-h] [-d] [-v] [-V] [-S] [-b <directory>] [-m <method>] <domain1 [domain2 domainN]>|all
-   $0 [-v] [-d] [-S] -H
-   $0 [-v] [-d] [-S] -l <domain1 [domain2 domainN]>|all
-   $0 [-v] [-d] [-S] -R <domain>
+Perform backups:
+$0 [-c|-C] [-q|-s <directory>] [-h] [-d] [-v] [-V] [-S] [-b <directory>] [-m <method>] <domain1 [domain2 domainN]>|all
 
-   Options
-      -b <directory>    Copy previous snapshot/base image to the specified <directory>
-      -c                Consolidation only
-      -C                Snapshot and consolidation
-      -d                Debug
-      -h                Print usage and exit
-      -H                Remove old backupsets
-      -l                List backups 
-      -m <method>       Consolidation method: blockcommit or blockpull
-      -q                Use quiescence (qemu agent must be installed in the domain)
-      -R                Restore the given domain (only one domain is allowed)
-      -s <directory>    Dump domain status in the specified directory
-      -S                Log to stdout instead of systemd-journal
-      -v                Verbose
-      -V                Print version and exit
+Clean up the backup directory and remove old backups:
+$0 [-v] [-d] [-S] -H
+
+List backups:
+$0 [-v] [-d] [-S] -l <domain1 [domain2 domainN]>|all
+
+Restore a domain:
+$0 [-v] [-d] [-S] -R [--as-copy] <domain>
+
+
+Options
+=======
+   -b <directory>         Copy previous snapshot/base image to the specified <directory>
+   -c                     Consolidation only
+   -C                     Snapshot and consolidation
+   -d, --debug            Debug
+   -h, --help             Print usage and exit
+   -H, --housekeeping     Remove old backupsets
+   -l, --list-backups     List backups 
+   -m, --method <method>  Consolidation method: blockcommit or blockpull
+   -q, --quiesce          Use quiescence (qemu agent must be installed in the domain)
+   -R, --restore          Restore the given domain
+       --as-copy          Choose a new name for the restored domain
+   -s <directory>         Dump domain status in the specified directory
+   -S, --stdout           Log to stdout instead of systemd-journal
+   -v, --verbose          Verbose
+   -V, --version          Print version and exit
 
 EOU
 }
@@ -271,7 +282,6 @@ function dump_state() {
 # Return:   0 on success, non 0 otherwise
 function snapshot_domain() {
    local domain_name=$1
-
    local _ret=0
    local backing_file=
    local block_device=
@@ -280,13 +290,13 @@ function snapshot_domain() {
    local command_output=
    local new_backing_file=
    local parent_backing_file=
-
    local timestamp=
    local resume_vm=0
+   local output
 
    timestamp=$(date "+%Y%m%d-%H%M%S")
 
-   print_v d "Snapshot for domain '$domain_name' requested"
+   print_v d "Snapshot of domain '$domain_name' requested"
    print_v d "Using timestamp '$timestamp'"
 
    # Dump VM state
@@ -305,16 +315,16 @@ function snapshot_domain() {
    fi
 
    # Create an external snapshot for each block device
-   print_v d "Snapshotting block devices for '$domain_name' using suffix '$SNAPSHOT_PREFIX-$timestamp'"
+   print_v d "Snapshotting block devices of '$domain_name' using suffix '$SNAPSHOT_PREFIX-$timestamp'"
 
    if [ ! -z ${QUIESCE+x} ] && [ $QUIESCE -eq 1 ]; then
-      print_v d "Quiesce requested"
+      print_v i "Quiesce requested"
       $VIRSH dumpxml $domain_name |grep -i guest|grep "'connected'" > /dev/null 2>&1
       if [ $? -eq 0 ];then
-         print_v d "Guest-Agent seems to be ready"
+         print_v i "Guest-Agent seems to be ready"
          extra_args="--quiesce"
       else
-         print_v d "Guest-Agent seems not to be connected, performing a non-quiesced backup"
+         print_v i "Guest-Agent seems not to be connected, performing a non-quiesced backup"
       fi
    fi
 
@@ -322,7 +332,7 @@ function snapshot_domain() {
       "$SNAPSHOT_PREFIX-$timestamp" --no-metadata --disk-only --atomic \
       $extra_args 2>&1)
    if [ $? -eq 0 ]; then
-      print_v v "Snapshot for block devices of '$domain_name' successful"
+      print_v v "Snapshot of '$domain_name' successful"
 
       if [ -n "$BACKUP_DIRECTORY" ] && [ ! -d "$BACKUP_DIRECTORY" ]; then
          print_v e "Backup directory '$BACKUP_DIRECTORY' doesn't exist"
@@ -350,9 +360,15 @@ function snapshot_domain() {
                      continue
                   fi
                   print_v v "Backing up '${snapshot_chain[$j]}'"
-                  cp -au "${snapshot_chain[$j]}" "$new_backing_file"
+                  output=$(cp -au "${snapshot_chain[$j]}" "$new_backing_file" 2>&1)
+                  if [ $? -ne 0 ];then
+                     print_v e "Backup of '${snapshot_chain[$j]}' failed!"
+                     print_v e "Reason: <$output>"
+                     _ret=1
+                  fi
                done
             done
+         (echo "online" > $BACKUP_DIRECTORY/.backuptype) 2>/dev/null
          fi
       else
          print_v d "No backup directory specified"
@@ -574,16 +590,28 @@ function clean_backupsets {
          print_v v "Number of backupsets for '$(basename $vm)' is below/equal $BACKUP_SETS_TO_KEEP; not removing any backupsets"
          continue
       fi
-      old_sets=($(find $BACKUP_DIRECTORY/$(basename $vm) -maxdepth 1 -mindepth 1 -type d -name set_* -mtime +$RETENTION_DAYS))
+      old_sets=($(find $BACKUP_DIRECTORY/$(basename $vm) -maxdepth 1 -mindepth 1 -type d -name set_* -mtime +$RETENTION_DAYS|sort))
       if [ ${#old_sets[@]} -eq 0 ]; then
          print_v v "No suitable backupsets found (too young)"
       else
-         for set in ${old_sets[@]};do
-            print_v v "Deleting '$set'"
-            rm -rf "$set" > /dev/null 2>&1
-            if [ $? -ne 0 ]; then
-               print_v e "Error removing '$set'"
-               _ret=1
+         if [ $((${#all_sets[@]} - ${#old_sets[@]})) -ge $BACKUP_SETS_TO_KEEP ];then
+            #all 'old_sets' can be deleted
+            BACKUP_SETS_TO_KEEP=0
+         elif [ $((${#all_sets[@]} - ${#old_sets[@]})) -lt $BACKUP_SETS_TO_KEEP ];then
+            #some 'old_sets' must stay to ensure the amount of $BACKUP_SETS_TO_KEEP
+            BACKUP_SETS_TO_KEEP=$(($BACKUP_SETS_TO_KEEP-(${#all_sets[@]} - ${#old_sets[@]})))
+         fi
+         while true;do
+            if [ ${#old_sets[@]} -gt $BACKUP_SETS_TO_KEEP ]; then
+               print_v v "Deleting '${old_sets[0]}'"
+               rm -rf "${old_sets[0]}" > /dev/null 2>&1
+               if [ $? -ne 0 ]; then
+                  print_v e "Error removing '${old_sets[0]}'"
+                  _ret=1
+               fi
+               old_sets=($(find $BACKUP_DIRECTORY/$(basename $vm) -maxdepth 1 -mindepth 1 -type d -name set_* -mtime +$RETENTION_DAYS|sort))
+            else
+               break
             fi
          done
       fi
@@ -624,7 +652,7 @@ function restore_domain {
    if [ -z ${RESTORE_AS_COPY+x} ];then
         $VIRSH dominfo $vm > /dev/null 2>&1
         if [ $? -eq 0 ];then
-            echo "'$vm' is a existing domain, you need to undefine it first."
+            echo "'$vm' is a existing domain, you need to undefine it first (or use the '--as-copy' switch)"
             _ret=1
             return
         fi
@@ -635,7 +663,7 @@ function restore_domain {
    if [ ! -z $con ] && ([ $con == "y" ] || [ $con == "Y" ]);then
       unset con
       echo "Please enter the timestamp (c&p from a '-l' run)"
-      read -p "Your choice: " ts
+      read -p "Timestamp: " ts
       vmconfig=($(find $BACKUP_DIRECTORY/$vm -type f -name "$vm-$ts.xml" 2>/dev/null))
       if [ ${#vmconfig[@]} -eq 0 ];then
          echo "No backup found"
@@ -653,7 +681,7 @@ function restore_domain {
       if [ ! -z ${RESTORE_AS_COPY+x} ];then
          cp $vmconfig /tmp/
          vmconfig_tmp="/tmp/$(basename $vmconfig)"
-         read -p "Please enter a new name: " new_name
+         read -p "Please enter a new name for the domain: " new_name
          new_uuid=$(uuidgen)
          sed -i -e "s/<name>\(.*\)<\/name>/<name>$new_name<\/name>/" $vmconfig_tmp
          sed -i -e "s/<uuid>\(.*\)<\/uuid>/<uuid>$new_uuid<\/uuid>/" $vmconfig_tmp
